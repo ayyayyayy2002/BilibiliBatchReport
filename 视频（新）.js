@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili视频批量举报（新）
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  举报当前UP的所有视频，包括合集内视频，支持自动跳转人机验证
 // @author       Ayyayyayy2002
 // @match        https://space.bilibili.com/*
@@ -22,7 +22,9 @@
 let reportCount = 0
 let currentAidIndex = 0; // 当前处理的AID索引
 let time_video = 2300
-let aids = []; // 所有提取的AID
+let aids = [];
+let pics = [];
+let titles = [];
 let seasonIds= [];
 const floatingWindow = document.createElement('div');// 创建诊断信息窗口
 floatingWindow.style.position = 'fixed';
@@ -162,6 +164,12 @@ function extractSeasonAIDs() {
                             if (data.code === 0 && data.data && data.data.archives) {
                                 aids = data.data.archives.map(archive => archive.aid); // 提取 AID
                                 console.log("Extracted AIDs:", aids);
+
+                                titles = data.data.archives.map(archive => archive.title); // 提取 title
+                                console.log("Extracted Titles:", titles);
+
+                                pics = data.data.archives.map(archive => archive.pic); // 提取 pic
+                                console.log("Extracted Pics:", pics);
                                 currentAidIndex = 0; // 重置索引
 
                                 // 使用 Promise.race 设置超时机制
@@ -240,6 +248,12 @@ function extractSeasonAIDs() {
                                     if (data.code === 0 && data.data && data.data.archives) {
                                         aids = data.data.archives.map(archive => archive.aid); // 提取 AID
                                         console.log("Extracted AIDs:", aids);
+
+                                        titles = data.data.archives.map(archive => archive.title); // 提取 title
+                                        console.log("Extracted Titles:", titles);
+
+                                        pics = data.data.archives.map(archive => archive.pic); // 提取 pic
+                                        console.log("Extracted Pics:", pics);
                                         currentAidIndex = 0; // 重置索引
                                         submitNextAppeal().then(() => {
                                             resolve("完成，结束");
@@ -270,16 +284,44 @@ function extractSeasonAIDs() {
                 });
             }
 
-            function submitAppeal(aid) {
-                return new Promise((resolve) => {
-                    const data = new URLSearchParams({
-                        'aid': aid,
-                        'attach': '',
-                        'block_author': 'false',
-                        'csrf': getCsrf(),
-                        'desc': "侮辱国家领导人，宣扬台独反华内容。审核结果：下架此视频并永久封禁该账号",
-                        'tid': '10014'
-                    }).toString();
+function submitNextAppeal() {
+    reportCount++;
+    return new Promise((resolve) => {
+        if (currentAidIndex < aids.length) {
+            const aid = aids[currentAidIndex];
+            const title = titles[currentAidIndex];
+            const pic = pics[currentAidIndex];
+            setTimeout(() => {
+                submitAppeal(aid,title,pic)
+                    .then((shouldContinue) => {
+                        if (!shouldContinue) {
+                            resolve(); // 直接结束
+                            return;     // 退出当前函数
+                        }
+                        currentAidIndex++;
+                        submitNextAppeal().then(resolve);
+                    });
+            }, time_video);
+        } else {
+            updateDiagnosticInfo('视频举报完成!<br>');
+            console.warn('视频举报完成!');
+
+
+            resolve(); // 完成后解除 Promise
+        }
+    });
+}
+function submitAppeal(aid,title,pic) {
+    return new Promise((resolve) => {
+        const data = new URLSearchParams({
+            'aid': aid,
+            'attach': pic,
+            'block_author': 'false',
+            'csrf': getCsrf(),
+            'desc': `违规行为：在视频标题${title}及评论中支持“台独”行为，并辱骂讽刺政府和领导人。诉求：下架此视频并处罚发送此视频的账号`,
+
+            'tid': '10019'
+        }).toString();
                     const xhr = new XMLHttpRequest();
                     xhr.withCredentials = true;
                     xhr.open('POST', 'https://api.bilibili.com/x/web-interface/appeal/v2/submit');
@@ -326,30 +368,7 @@ function extractSeasonAIDs() {
 
 //###############################################点赞视频部分#############################################################
 
-                    if (reportCount % 50 === 49) {
-                        const data = new URLSearchParams({
-                            'aid': aid, // 确保 aid 的值是字符串或数字
-                            'like': '1',
-                            'csrf': getCsrf() // 请确保这是从浏览器中获取到的有效值
-                        });
-
-                        let xhr = new XMLHttpRequest();
-                        xhr.withCredentials = true; // 允许跨域请求携带凭证
-                        xhr.open("POST", "https://api.bilibili.com/x/web-interface/archive/like");
-                        xhr.setRequestHeader('accept', 'application/json, text/plain, */*');
-                        xhr.setRequestHeader('accept-language', 'zh-CN,zh;q=0.9');
-                        xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded');
-
-
-                        xhr.onload = function() {
-                            updateDiagnosticInfo(`点赞：${xhr.responseText}<br>`); // 更新诊断信息
-                            console.warn(`点赞：${xhr.responseText}`); // 更新诊断信息
-                        };
-
-// 发送请求
-                        xhr.send(data.toString());
-
-                    }
+   
 
 //###############################################点赞视频部分#############################################################
 
@@ -357,30 +376,7 @@ function extractSeasonAIDs() {
                 });
             }
 
-            function submitNextAppeal() {
-                reportCount++;
-                return new Promise((resolve) => {
-                    if (currentAidIndex < aids.length) {
-                        const aid = aids[currentAidIndex];
-                        setTimeout(() => {
-                            submitAppeal(aid)
-                                .then((shouldContinue) => {
-                                    if (!shouldContinue) {
-                                        resolve(); // 直接结束
-                                        return;     // 退出当前函数
-                                    }
-                                    currentAidIndex++;
-                                    submitNextAppeal().then(resolve);
-                                });
-                        }, time_video);
-                    } else {
-                        updateDiagnosticInfo('视频举报完成!<br>');
-                        console.warn('视频举报完成!');
 
-                        resolve(); // 完成后解除 Promise
-                    }
-                });
-            }
 
 //######################################################################################################################
 //###################################################举报视频部分#########################################################
